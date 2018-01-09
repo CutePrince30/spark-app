@@ -165,7 +165,7 @@ object SparkUriQuery {
          | '$province' as province
          |from
          | $result_table_name
-      """.stripMargin).repartition(300)
+      """.stripMargin)
 
     r_df.write.mode(SaveMode.Append).partitionBy("business", "daytime")
       .parquet("hdfs://master1:9000/sunyj/out/uris")
