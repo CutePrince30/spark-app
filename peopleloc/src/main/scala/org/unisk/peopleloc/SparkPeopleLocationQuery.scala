@@ -42,7 +42,7 @@ object SparkPeopleLocationQuery {
         |from
         | xdr.location
         |where
-        | province in ('beijing', 'guangdong', 'jiangsu', 'zhejiang', 'jiangxi', 'gansu') and city = 'all'
+        | province = 'zhejiang' and city = 'all'
       """.stripMargin)
 
     val loc_info = loc_df.rdd.map(record => record(0) -> record(1)).collectAsMap()
@@ -64,17 +64,18 @@ object SparkPeopleLocationQuery {
          | and msisdn regexp '^(86)?1[^(0|1|2)][0-9]{9}$$' and imei != ''
       """.stripMargin)
 
-    def merge(iter: Iterator[Row]): Iterator[(String, String, String, String, String, String, String, String, String)] = {
+    def merge(iter: Iterator[Row]): Iterator[(Long, Long, Long, String, Int, Long, Double, Double, String)] = {
       val loc_map = loc_bc.value
-      var set = scala.collection.mutable.Set[(String, String, String, String, String, String, String, String, String)]()
+      val set = scala.collection.mutable.Set[(Long, Long, Long, String, Int, Long, Double, Double, String)]()
       iter.foreach(row => {
         val pid = row.getString(4)
         if (loc_map.contains(pid)) {
           val loc_value = loc_map.get(pid).mkString.split("_")
           Try {
-            set add ((row.getString(0), row.getString(1), row.getString(2), row.getString(3),
-              pid.split("_")(0), pid.split("_")(1),
-              loc_value(0), loc_value(1), loc_value(2)))
+            set add ((row.getString(0).toLong, row.getString(1).toLong,
+              row.getString(2).toLong, row.getString(3),
+              pid.split("_")(0).toInt, pid.split("_")(1).toLong,
+              loc_value(0).toDouble, loc_value(1).toDouble, loc_value(2)))
           }
         }
       })
@@ -99,16 +100,15 @@ object SparkPeopleLocationQuery {
          | first(lon) as lon,
          | first(lat) as lat,
          | '$province' as source_province,
-         | first(province) as province,
-         | '$daytime' as daytime
+         | first(province) as province
          |from
          | $result_table_name
          |group by
          | msisdn, starttime, lac, ci
       """.stripMargin)
 
-    r_df.write.mode(SaveMode.Append).partitionBy("province", "daytime")
-      .parquet("hdfs://master1:9000/sunyj/out/people_loc")
+    r_df.write.mode(SaveMode.Append).partitionBy("province")
+      .parquet(s"hdfs://master1:9000/sunyj/out/people_loc/$daytime")
 
     spark.stop()
   }
