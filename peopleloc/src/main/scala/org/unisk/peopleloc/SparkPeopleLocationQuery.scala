@@ -42,7 +42,8 @@ object SparkPeopleLocationQuery {
         |from
         | xdr.location
         |where
-        | province = 'zhejiang' and city = 'all'
+        | province in ('beijing', 'hebei', 'tianjin', 'heilongjiang',
+        |   'jilin', 'liaoning', 'neimenggu', 'shandong', 'jiangsu', 'guizhou') and city = 'all'
       """.stripMargin)
 
     val loc_info = loc_df.rdd.map(record => record(0) -> record(1)).collectAsMap()
