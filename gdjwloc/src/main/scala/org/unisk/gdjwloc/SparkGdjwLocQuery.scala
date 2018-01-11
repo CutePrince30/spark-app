@@ -34,8 +34,8 @@ object SparkGdjwLocQuery {
 
     import spark.implicits._
 
-    val httpDF = spark.read.parquet(s"/sunyj/out/people_loc/province=$province/daytime=$daytime/*.parquet")
-    httpDF.createOrReplaceTempView(s"${province}_loc")
+    val locDF = spark.read.parquet(s"/sunyj/out/people_loc/$daytime/province=$province/*.parquet")
+    locDF.createOrReplaceTempView(s"${province}_loc")
 
     val resultDF = spark.sql(
       s"""
