@@ -32,7 +32,7 @@ object BeijingTaxi {
 
     import spark.implicits._
 
-    val locDF = spark.read.parquet(s"/sunyj/out/people_loc/province=$province/daytime=$daytime/*.parquet")
+    val locDF = spark.read.parquet(s"/sunyj/out/people_loc/$daytime/province=$province/*.parquet")
     locDF.createOrReplaceTempView(s"${province}_loc")
 
     val resultDF = spark.sql(
@@ -48,8 +48,9 @@ object BeijingTaxi {
          |order by id, ts asc
       """.stripMargin)
 
-    def filter(id: String, postions: Iterable[(Long, Int, Int, Int, Int)]): (String, String) = {
-      val r_positions = ListBuffer[(Long, Int, Int, Int, Int)]()
+    def filter(id: Long, postions: Iterable[(Long, Int, Int, Int, Long)]): (Long, String) = {
+                                  // ts,  lon, lat, lac, ci
+      val r_positions = ListBuffer[(Long, Int, Int, Int, Long)]()
       val o_positions = postions.toList
 
       var i = 0
@@ -88,10 +89,10 @@ object BeijingTaxi {
 
 
     resultDF.map {
-      case Row(id: String, ts: Long, lac: String, ci: String, lon: String, lat: String) =>
-        id -> (ts, (lon.toFloat * 1000).toInt, (lat.toFloat * 1000).toInt, lac.toInt, ci.toInt)
+      case Row(id: Long, ts: Long, lac: Int, ci: Long, lon: Double, lat: Double) =>
+        id -> (ts, (lon * 1000).toInt, (lat * 1000).toInt, lac, ci)
     }.rdd.groupByKey().mapPartitions(iter => {
-      val rlist = ListBuffer[(String, String)]()
+      val rlist = ListBuffer[(Long, String)]()
       iter.foreach(row => {
         rlist.append(filter(row._1, row._2))
       })
