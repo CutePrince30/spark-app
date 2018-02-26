@@ -106,7 +106,7 @@ object SparkLocData2EsApp {
         for (r_position <- r_positions) {
           rlist append
             Map("msisdn" -> id,
-                "starttime" -> DateFormatUtils.format(r_position._1, "yyyy-MM-dd HH:mm:ss"),
+                "starttime" -> DateFormatUtils.format(r_position._1 * 1000L, "yyyy-MM-dd HH:mm:ss"),
                 "lon" -> r_position._2,
                 "lat" -> r_position._3)
         }
