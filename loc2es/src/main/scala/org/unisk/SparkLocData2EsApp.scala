@@ -1,6 +1,8 @@
 package org.unisk
 
+import org.apache.commons.lang3.time.DateFormatUtils
 import org.apache.spark.sql.{Row, SparkSession}
+import org.elasticsearch.spark.rdd.EsSpark
 
 import scala.collection.mutable.ListBuffer
 import scala.util.control.Breaks.{break, breakable}
@@ -23,7 +25,7 @@ object SparkLocData2EsApp {
     val spark = SparkSession
       .builder()
       .master("yarn")
-      .appName("beijing_taxi_" + province + "_" + daytime)
+      .appName("SparkLocData2EsApp_" + province + "_" + daytime)
       .config("spark.sql.warehouse.dir", "/user/hive/warehouse")
       .config("spark.files.ignoreCorruptFiles", value = true)
       .config("spark.sql.autoBroadcastJoinThreshold", 524288000)
@@ -31,6 +33,15 @@ object SparkLocData2EsApp {
       .getOrCreate()
 
     import spark.implicits._
+    import org.elasticsearch.spark._
+
+    val writeConfig = Map(
+      "es.nodes" -> "10.245.5.31,10.245.5.32,10.245.5.33",
+      "es.index.auto.create" -> "false",
+      "es.batch.size.entries" -> "30000",
+      "es.batch.write.retry.count" -> "20",
+      "es.batch.write.retry.wait" -> "30s"
+    )
 
     val locDF = spark.read.parquet(s"/sunyj/out/people_loc/$daytime/province=$province/*.parquet")
     locDF.createOrReplaceTempView(s"${province}_loc")
@@ -40,17 +51,15 @@ object SparkLocData2EsApp {
          |select
          | msisdn as id,
          | unix_timestamp(starttime, 'yyyyMMddHHmmss') as ts,
-         | lac,
-         | ci,
          | lon,
          | lat
          |from ${province}_loc
          |order by id, ts asc
       """.stripMargin)
 
-    def filter(id: Long, postions: Iterable[(Long, Int, Int, Int, Long)]): (Long, String) = {
+    def filter(id: Long, postions: Iterable[(Long, Int, Int)]): (Long, ListBuffer[(Long, Int, Int)]) = {
       // ts,  lon, lat, lac, ci
-      val r_positions = ListBuffer[(Long, Int, Int, Int, Long)]()
+      val r_positions = ListBuffer[(Long, Int, Int)]()
       val o_positions = postions.toList
 
       var i = 0
@@ -84,21 +93,28 @@ object SparkLocData2EsApp {
         }
       }
 
-      (id, r_positions.mkString("[", ",", "]"))
+      (id, r_positions)
     }
 
-
-    resultDF.map {
-      case Row(id: Long, ts: Long, lac: Int, ci: Long, lon: Double, lat: Double) =>
-        id -> (ts, (lon * 1000).toInt, (lat * 1000).toInt, lac, ci)
+    val locRDD = resultDF.map {
+      case Row(id: Long, ts: Long, lon: Double, lat: Double) =>
+        id -> (ts, (lon * 1000).toInt, (lat * 1000).toInt)
     }.rdd.groupByKey().mapPartitions(iter => {
-      val rlist = ListBuffer[(Long, String)]()
+      val rlist = ListBuffer[Map[String, Any]]()
       iter.foreach(row => {
-        rlist.append(filter(row._1, row._2))
+        val (id, r_positions) = filter(row._1, row._2)
+        for (r_position <- r_positions) {
+          rlist append
+            Map("msisdn" -> id,
+                "starttime" -> DateFormatUtils.format(r_position._1, "yyyy-MM-dd HH:mm:ss"),
+                "lon" -> r_position._2,
+                "lat" -> r_position._3)
+        }
       })
       rlist.iterator
-    }).saveAsTextFile(s"hdfs://master1:9000/sunyj/out/xinling/$province/$daytime",
-      classOf[org.apache.hadoop.io.compress.GzipCodec])
+    })
+
+    EsSpark.saveToEs(locRDD, "loc/docs", writeConfig)
 
     spark.stop()
   }
