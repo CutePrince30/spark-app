@@ -15,7 +15,7 @@ object SparkLocData2EsApp {
   def main(args: Array[String]): Unit = {
 
     if (args.length != 2) {
-      System.err.println("Usage: BeijingTaxi <daytime>")
+      System.err.println("Usage: SparkLocData2EsApp <province> <daytime>")
       System.exit(1)
     }
 
@@ -32,9 +32,6 @@ object SparkLocData2EsApp {
       .enableHiveSupport()
       .getOrCreate()
 
-    import spark.implicits._
-    import org.elasticsearch.spark._
-
     val writeConfig = Map(
       "es.nodes" -> "10.245.5.31,10.245.5.32,10.245.5.33",
       "es.index.auto.create" -> "false",
@@ -42,6 +39,9 @@ object SparkLocData2EsApp {
       "es.batch.write.retry.count" -> "20",
       "es.batch.write.retry.wait" -> "30s"
     )
+
+    import spark.implicits._
+    import org.elasticsearch.spark._
 
     val locDF = spark.read.parquet(s"/sunyj/out/people_loc/$daytime/province=$province/*.parquet")
     locDF.createOrReplaceTempView(s"${province}_loc")
@@ -57,9 +57,9 @@ object SparkLocData2EsApp {
          |order by id, ts asc
       """.stripMargin)
 
-    def filter(id: Long, postions: Iterable[(Long, Int, Int)]): (Long, ListBuffer[(Long, Int, Int)]) = {
+    def filter(id: Long, postions: Iterable[(Long, Double, Double)]): (Long, ListBuffer[(Long, Double, Double)]) = {
       // ts,  lon, lat, lac, ci
-      val r_positions = ListBuffer[(Long, Int, Int)]()
+      val r_positions = ListBuffer[(Long, Double, Double)]()
       val o_positions = postions.toList
 
       var i = 0
@@ -98,7 +98,7 @@ object SparkLocData2EsApp {
 
     val locRDD = resultDF.map {
       case Row(id: Long, ts: Long, lon: Double, lat: Double) =>
-        id -> (ts, (lon * 1000).toInt, (lat * 1000).toInt)
+        id -> (ts, lon, lat)
     }.rdd.groupByKey().mapPartitions(iter => {
       val rlist = ListBuffer[Map[String, Any]]()
       iter.foreach(row => {
@@ -106,9 +106,9 @@ object SparkLocData2EsApp {
         for (r_position <- r_positions) {
           rlist append
             Map("msisdn" -> id,
-                "starttime" -> DateFormatUtils.format(r_position._1 * 1000L, "yyyy-MM-dd HH:mm:ss"),
-                "lon" -> r_position._2,
-                "lat" -> r_position._3)
+              "starttime" -> DateFormatUtils.format(r_position._1 * 1000L, "yyyy-MM-dd HH:mm:ss"),
+              "location" -> Map("lon" -> r_position._2, "lat" -> r_position._3)
+            )
         }
       })
       rlist.iterator
